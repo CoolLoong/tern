@@ -1,0 +1,8 @@
+// Only portal dialogs float. Normal Tern windows keep their usual layout.
+window-rule {
+    match app-id="^io[.]github[.]coolloong[.]Tern[.]FileChooser$"
+    open-floating true
+    open-focused true
+    default-column-width { fixed 960; }
+    default-window-height { fixed 680; }
+}

@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Tern
+GenericName=File Manager
+Comment=Browse the file system
+Exec=tern %U
+Icon=tern
+Terminal=false
+Categories=System;FileTools;FileManager;
+MimeType=inode/directory;
+StartupNotify=true
+StartupWMClass=tern
+Keywords=file;manager;explorer;

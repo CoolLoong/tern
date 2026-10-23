@@ -1,0 +1,108 @@
+[workspace]
+resolver = "2"
+members = [
+    ".",
+    "crates/gpui_common",
+    "crates/gpui_dock",
+    "crates/gpui_transfer",
+    "crates/menubar",
+]
+
+[workspace.package]
+edition = "2024"
+version = "0.0.1"
+license = "AGPL-3.0-only"
+authors = ["CoolLoong <wingdon@foxmail.com>"]
+documentation = "https://github.com/CoolLoong/tern/tree/main/docs"
+homepage = "https://github.com/CoolLoong/tern"
+repository = "https://github.com/CoolLoong/tern"
+categories = ["file-manager", "gpui"]
+keywords = ["file", "manager", "gpui"]
+
+[workspace.lints.rust]
+unexpected_cfgs = { level = "allow" }
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+declare_interior_mutable_const = "deny"
+redundant_clone = "deny"
+disallowed_methods = "deny"
+
+[workspace.dependencies]
+anyhow = "1"
+env_logger = "0.11"
+gpui-kit = { git = "https://github.com/longbridge/gpui-kit", rev = "0e63ea799766c486022a0cecfda6e48c5183a2d7" }
+itertools = "0.14"
+rust-i18n = "4.0.0"
+rust-embed = "8"
+serde = "1"
+serde_json = "1"
+mime_guess = "2"
+smallvec = "1"
+smol = "2"
+libc = "0.2"
+gpui_common = { path = "crates/gpui_common" }
+gpui_dock = { path = "crates/gpui_dock" }
+gpui_transfer = { path = "crates/gpui_transfer" }
+menubar = { path = "crates/menubar" }
+
+[package]
+name = "tern"
+version.workspace = true
+edition.workspace = true
+description = "A fast native file manager built with Rust and GPUI"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+chrono = "0.4"
+env_logger.workspace = true
+gpui-kit.workspace = true
+gpui_common = { path = "crates/gpui_common" }
+gpui_dock = { path = "crates/gpui_dock" }
+gpui_transfer = { path = "crates/gpui_transfer" }
+menubar = { path = "crates/menubar" }
+rust-embed.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+home = "0.5"
+log = "0.4"
+smol.workspace = true
+mime_guess.workspace = true
+libc.workspace = true
+url = "2"
+zbus = "5"
+glob = "0.3"
+ksni = { version = "0.3.7", default-features = false, features = ["async-io"] }
+
+[dev-dependencies]
+gpui-kit = { workspace = true, features = ["test-support"] }
+
+[profile.release]
+strip = true
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.dev-fast]
+inherits = "dev"
+debug = false
+codegen-units = 16
+incremental = true
+
+[profile.dev-fast.package."*"]
+opt-level = 2
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[patch.crates-io]
+gpui-pre-wgpu = { path = "vendor/gpui-pre-wgpu" }

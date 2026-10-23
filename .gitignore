@@ -1,0 +1,9 @@
+/target
+/nemo
+/.claudebox
+/.codex
+pkg
+*.tar.zst
+Cargo.lock.orig
+__pycache__/
+*.py[cod]

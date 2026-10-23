@@ -1,0 +1,89 @@
+name: Build and release
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: Create a draft GitHub Release for the version in Cargo.toml
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_BUILD_JOBS: '2'
+  CARGO_PROFILE_RELEASE_LTO: thin
+  CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+  RUSTFLAGS: -C link-arg=-fuse-ld=lld
+
+jobs:
+  build:
+    name: Build Linux x86_64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      version: ${{ steps.package.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang cmake lld pkg-config \
+            libfontconfig-dev libfreetype-dev libwayland-dev libx11-xcb-dev \
+            libxkbcommon-x11-dev libssl-dev libzstd-dev libvulkan1
+      - name: Install Rust
+        run: rustup toolchain install 1.99.1 --profile minimal
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.event_name == 'push' }}
+      - name: Build release executable
+        run: cargo build --release --locked --bin tern
+      - name: Package executable and desktop resources
+        id: package
+        run: ./tools/package-release.sh
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tern-${{ steps.package.outputs.version }}-linux-x86_64
+          path: |
+            ${{ steps.package.outputs.archive }}
+            ${{ steps.package.outputs.checksum }}
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Create release draft
+    needs: build
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.create_release }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tern-${{ needs.build.outputs.version }}-linux-x86_64
+          path: dist
+      - name: Create draft with the built archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          gh release create "v$VERSION" dist/* \
+            --target "$GITHUB_SHA" \
+            --title "Tern $VERSION" \
+            --generate-notes \
+            --draft

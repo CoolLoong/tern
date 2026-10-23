@@ -1,0 +1,22 @@
+[package]
+name = "menubar"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+documentation.workspace = true
+homepage.workspace = true
+repository.workspace = true
+categories.workspace = true
+keywords.workspace = true
+
+[dependencies]
+gpui-kit.workspace = true
+rust-i18n.workspace = true
+
+[dev-dependencies]
+env_logger.workspace = true
+gpui-kit = { workspace = true, features = ["test-support"] }
+
+[lints]
+workspace = true

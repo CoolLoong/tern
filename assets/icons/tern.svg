@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title id="title">Tern</title>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e7f6fb"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#37dfdb"/>
+      <stop offset=".55" stop-color="#24cce1"/>
+      <stop offset="1" stop-color="#079dce"/>
+    </linearGradient>
+    <path id="bird" d="M0 27 42 11 64 32 101 0 80 45 63 48 50 63 47 42Z"/>
+    <clipPath id="bird-clip">
+      <use href="#bird"/>
+    </clipPath>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#background)" stroke="#b9e4ef" stroke-width="1"/>
+  <g transform="translate(15 33) scale(.97)">
+    <use href="#bird" fill="url(#accent)"/>
+    <g clip-path="url(#bird-clip)">
+      <path d="M0 27 42 11 64 32 47 42Z" fill="#36dedc" opacity=".48"/>
+      <path d="M64 32 101 0 84 29Z" fill="#30d9e6" opacity=".7"/>
+      <path d="M64 32 84 29 80 45 63 48Z" fill="#16b9d9" opacity=".6"/>
+      <path d="M47 42 64 32 63 48Z" fill="#25bdd6" opacity=".7"/>
+      <path d="M47 42 63 48 50 63Z" fill="#059dcd" opacity=".8"/>
+      <path d="M47 42 55 46 50 63Z" fill="#20bad8" opacity=".8"/>
+    </g>
+  </g>
+</svg>

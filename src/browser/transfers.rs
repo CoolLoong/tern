@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod tests;
+
 use crate::files::operations::trash_paths;
 use gpui_kit::AsyncApp;
 use gpui_transfer::{
@@ -114,31 +117,68 @@ fn run_transfer(
     .detach();
 }
 
-/// Starts a delete from an event handler. See [`start_transfer`] for why the
-/// first step cannot touch the `App` synchronously.
-pub fn move_to_trash(sources: Vec<PathBuf>, group_id: String, cx: &mut gpui_kit::App) {
+pub(crate) fn start_file_operation(
+    label: &'static str,
+    operation: impl FnOnce() -> usize + Send + 'static,
+    cx: &mut gpui_kit::App,
+) {
+    let group_id = next_group_id();
     let cx = cx.to_async();
     cx.spawn(async move |cx| {
-        let worker = cx
-            .background_executor()
-            .spawn(async move { trash_paths(&sources) });
+        cx.update(|cx| {
+            cx.global_mut::<TransferCenterState>().upsert(
+                TransferTask::new(&group_id, format!("{label}…")).with_group(&group_id, Some(1)),
+            );
+        });
+        let worker = cx.background_executor().spawn(async move { operation() });
         let failed = worker.await;
-        if !failed.is_empty() {
-            log::warn!("trash failed for {} items", failed.len());
-        }
         cx.update(|cx| {
             let state = cx.global_mut::<TransferCenterState>();
             state.remove_group(&group_id);
-            if !failed.is_empty() {
+            if failed > 0 {
                 state.note_failure(TransferFailure {
-                    label: "Move to Trash".to_string(),
-                    count: failed.len(),
+                    label: label.to_string(),
+                    count: failed,
                 });
             }
             state.note_completed();
         });
     })
     .detach();
+}
+
+pub(crate) fn start_path_operation(
+    sources: Vec<PathBuf>,
+    label: &'static str,
+    operation: fn(&Path) -> std::io::Result<()>,
+    cx: &mut gpui_kit::App,
+) {
+    if sources.is_empty() {
+        return;
+    }
+    start_file_operation(
+        label,
+        move || {
+            sources
+                .into_iter()
+                .filter(|path| {
+                    if let Err(error) = operation(path) {
+                        log::warn!("{label} failed {}: {error:#}", path.display());
+                        true
+                    } else {
+                        false
+                    }
+                })
+                .count()
+        },
+        cx,
+    );
+}
+
+pub fn move_to_trash(sources: Arc<[PathBuf]>, cx: &mut gpui_kit::App) {
+    if !sources.is_empty() {
+        start_file_operation("Move to Trash", move || trash_paths(&sources).len(), cx);
+    }
 }
 
 #[allow(dead_code)]

@@ -10,7 +10,7 @@ members = [
 
 [workspace.package]
 edition = "2024"
-version = "0.0.1"
+version = "0.0.2"
 license = "AGPL-3.0-only"
 authors = ["CoolLoong <wingdon@foxmail.com>"]
 documentation = "https://github.com/CoolLoong/tern/tree/main/docs"
@@ -80,6 +80,7 @@ libc.workspace = true
 url = "2"
 zbus = "5"
 glob = "0.3"
+gio = { version = "0.22.10", features = ["v2_60"] }
 ksni = { version = "0.3.7", default-features = false, features = ["async-io"] }
 
 [dev-dependencies]

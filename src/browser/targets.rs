@@ -50,38 +50,3 @@ pub(crate) fn target_dir(
         current_dir.map(PathBuf::from)
     }
 }
-
-pub(crate) fn open_files(paths: &[PathBuf]) -> usize {
-    open_files_with(paths, |path| {
-        std::process::Command::new("xdg-open")
-            .arg(path)
-            .spawn()
-            .is_ok()
-    })
-}
-
-fn open_files_with(paths: &[PathBuf], mut launch: impl FnMut(&Path) -> bool) -> usize {
-    let mut spawned = 0;
-    for path in paths {
-        if launch(path) {
-            spawned += 1;
-        } else {
-            log::warn!("failed to open {}", path.display());
-        }
-    }
-    spawned
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn open_files_with_missing_command_does_not_panic() {
-        let paths = vec![PathBuf::from("/nonexistent/xyz")];
-        // Inject a failed launcher so the test is independent of host PATH and
-        // never starts a real desktop application.
-        let spawned = open_files_with(&paths, |_| false);
-        assert_eq!(spawned, 0);
-    }
-}

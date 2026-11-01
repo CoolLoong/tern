@@ -35,6 +35,10 @@ impl RowData {
         let mut by_id = HashMap::with_capacity(entries.len());
         for entry in entries {
             cancel.check()?;
+            let std::collections::hash_map::Entry::Vacant(index) = by_id.entry(entry.path.clone())
+            else {
+                continue;
+            };
             let mut row = VisibleRow::from(entry);
             row.original_path = match origin {
                 Origin::Directory => None,
@@ -45,7 +49,7 @@ impl RowData {
                     .parent()
                     .map(|p| p.to_string_lossy().into_owned()),
             };
-            by_id.insert(row.id.clone(), rows.len());
+            index.insert(rows.len());
             rows.push(row);
         }
         cancel.check()?;
@@ -58,6 +62,7 @@ pub(crate) struct ViewOptions {
     pub(crate) sort: SortSpec,
     pub(crate) show_hidden: bool,
     pub(crate) filter: Option<Arc<super::filter::FileFilter>>,
+    pub(crate) query: String,
 }
 
 #[derive(Clone, Default)]
@@ -76,9 +81,11 @@ impl RowView {
     ) -> io::Result<Self> {
         cancel.check()?;
         let mut order = Vec::with_capacity(source.rows.len());
+        let query = options.query.trim();
         for (index, row) in source.rows.iter().enumerate() {
             cancel.check()?;
             if (options.show_hidden || !crate::files::fs::is_hidden_name(&row.name))
+                && (query.is_empty() || super::search::matches(&row.name, query))
                 && (row.is_dir
                     || options
                         .filter
@@ -156,6 +163,22 @@ pub(crate) fn load_directory(
 mod tests {
     use super::*;
     use crate::files::model::{EntryKind, SortColumn, SortDirection};
+
+    #[test]
+    fn duplicate_paths_have_one_row_and_a_consistent_selection_index() {
+        let entries = ["/a/report.txt", "/a/report.txt", "/b/report.txt"]
+            .into_iter()
+            .map(|path| Entry::new(path, "report.txt", EntryKind::File))
+            .collect();
+        let cancel = Cancellation::default();
+        let rows = RowData::from_entries(entries, Origin::Directory, &cancel).unwrap();
+        let view = RowView::prepare(rows, ViewOptions::default(), &cancel).unwrap();
+        assert_eq!(view.len(), 2);
+        assert_eq!(view.position("/a/report.txt"), Some(0));
+        assert_eq!(view.position("/b/report.txt"), Some(1));
+        assert_eq!(view.get(0).unwrap().id, "/a/report.txt");
+        assert_eq!(view.get(1).unwrap().id, "/b/report.txt");
+    }
 
     #[test]
     fn views_share_strings_and_match_all_sort_orders() {

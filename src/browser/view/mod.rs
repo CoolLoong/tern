@@ -1,8 +1,17 @@
 //! Browser state, navigation, input subscriptions and preview loading.
 #[cfg(test)]
 mod chooser_tests;
+#[cfg(test)]
+mod interaction_tests;
 mod layout;
+mod opening;
+#[cfg(test)]
+mod opening_tests;
 mod operations;
+#[cfg(test)]
+mod preview_tests;
+#[cfg(test)]
+mod rename_tests;
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -62,20 +71,24 @@ pub struct BrowserView {
     preview_epoch: usize,
     marquee: Option<Marquee>,
     ops_epoch: u64,
+    app_opener: std::sync::Arc<dyn crate::platform::open_with::AppOpener>,
+    open_requests: std::collections::VecDeque<(std::path::PathBuf, bool)>,
+    opening_path: Option<std::path::PathBuf>,
+    app_chooser: Option<Entity<crate::browser::app_chooser::AppChooser>>,
+    app_chooser_subscription: Option<Subscription>,
     _subscriptions: Vec<Subscription>,
 }
 
-#[derive(Clone)]
 struct Op {
     kind: OpKind,
     input: Entity<InputState>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 enum OpKind {
     NewFolder,
     NewTextFile,
-    Rename,
+    Rename { target: String },
 }
 
 impl Focusable for BrowserView {
@@ -154,7 +167,12 @@ impl BrowserView {
             },
             preview_epoch: 0,
             marquee: None,
-            ops_epoch: 0,
+            ops_epoch: cx.global::<TransferCenterState>().completed_epoch(),
+            app_opener: std::sync::Arc::new(crate::platform::open_with::SystemAppOpener),
+            open_requests: Default::default(),
+            opening_path: None,
+            app_chooser: None,
+            app_chooser_subscription: None,
             _subscriptions: vec![
                 path_sub,
                 search_sub,
@@ -172,6 +190,9 @@ impl BrowserView {
     pub(crate) fn new_chooser(dir: String, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut view = Self::new_at(Some(dir), window, cx);
         view.chooser = true;
+        view.table.update(cx, |table, cx| {
+            table.delegate_mut().set_recursive_search(false, cx);
+        });
         view
     }
 
@@ -373,8 +394,8 @@ impl BrowserView {
         cx.subscribe_in(
             &table_entity,
             window,
-            move |this, _table_state, ev, _window, cx| {
-                this.handle_table_event(&table_for_handler, ev, cx);
+            move |this, _table_state, ev, window, cx| {
+                this.handle_table_event(&table_for_handler, ev, window, cx);
             },
         )
     }
@@ -383,6 +404,7 @@ impl BrowserView {
         &mut self,
         table: &Entity<TableState<BrowserDelegate>>,
         ev: &TableEvent,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if let TableEvent::SelectRow(row_ix) = ev {
@@ -396,10 +418,14 @@ impl BrowserView {
         {
             if row.kind == EntryKind::Dir && !crate::files::recent::is_recent(&row.id) {
                 self.push_history(&row.id, cx);
-                table.update(cx, |state, cx| state.delegate_mut().cd(row.id, cx));
+                self.change_dir(row.id, cx);
+                window.focus(&self.focus_handle(cx), cx);
                 cx.stop_propagation();
             } else if self.chooser {
                 cx.emit(BrowserEvent::AcceptSelection(vec![row.id.into()]));
+                cx.stop_propagation();
+            } else {
+                self.open_paths(vec![row.id.into()], false, window, cx);
                 cx.stop_propagation();
             }
         }
@@ -494,11 +520,7 @@ impl BrowserView {
             Error(gpui_kit::SharedString),
         }
 
-        async fn load_outcome(
-            target: &PreviewTarget,
-            kind: PreviewKind,
-            limit: usize,
-        ) -> PreviewOutcome {
+        fn load_outcome(target: &PreviewTarget, kind: PreviewKind, limit: usize) -> PreviewOutcome {
             let (bytes, truncated) = match crate::files::fs::read_bytes_limit(&target.id, limit) {
                 Ok(res) => res,
                 Err(err) => {
@@ -520,6 +542,7 @@ impl BrowserView {
                     let s = String::from_utf8_lossy(&bytes).to_string();
                     let fenced = fenced_text_as_markdown(&target.name, &s);
                     PreviewOutcome::Content(PreviewContent::Text {
+                        text: s.into(),
                         fenced_markdown: fenced.into(),
                     })
                 }
@@ -542,8 +565,12 @@ impl BrowserView {
         self.preview.content = PreviewContent::Loading;
         cx.notify();
 
+        let worker = cx.background_executor().spawn(async move {
+            let outcome = load_outcome(&target, kind, limit_bytes);
+            (target, outcome)
+        });
         cx.spawn(async move |this, cx| {
-            let outcome = load_outcome(&target, kind, limit_bytes).await;
+            let (target, outcome) = worker.await;
             let _ = this.update(cx, |this, cx| {
                 if this.preview_epoch != epoch {
                     return;

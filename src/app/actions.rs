@@ -28,6 +28,7 @@ actions!(
         OpenWith,
         OpenSettings,
         Copy,
+        CopyPath,
         Cut,
         Paste,
         AddToBookmark,

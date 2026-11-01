@@ -1,242 +1,157 @@
-use std::path::{Path, PathBuf};
+use gio::prelude::*;
+use std::{collections::HashSet, path::Path};
+
+#[cfg(test)]
+pub(crate) mod tests;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct AppEntry {
+    pub id: String,
+    pub name: String,
+    pub recommended: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Association {
+    Mime(String),
+    Extension(String),
+}
 
 #[derive(Clone, Debug)]
-pub struct AppEntry {
-    pub name: String,
-    pub exec: String,
-    pub mime_types: Vec<String>,
-    pub terminal: bool,
+pub(crate) struct FileInfo {
+    pub content_type: String,
+    pub description: String,
+    pub association: Option<Association>,
+    pub default_app: Option<AppEntry>,
 }
 
-fn desktop_dirs() -> Vec<PathBuf> {
-    let mut dirs = vec![
-        PathBuf::from("/usr/share/applications"),
-        PathBuf::from("/usr/local/share/applications"),
-    ];
-    if let Some(home) = home::home_dir() {
-        dirs.push(home.join(".local/share/applications"));
-    }
-    dirs
+pub(crate) trait AppOpener: Send + Sync {
+    fn describe(&self, path: &Path) -> Result<FileInfo, String>;
+    fn applications(&self, info: &FileInfo) -> Result<Vec<AppEntry>, String>;
+    fn launch(&self, app: &AppEntry, path: &Path) -> Result<(), String>;
+    fn set_default(&self, app: &AppEntry, association: &Association) -> Result<(), String>;
 }
 
-fn parse_desktop_file(path: &Path) -> Option<AppEntry> {
-    let content = std::fs::read_to_string(path).ok()?;
-    let mut in_entry = false;
-    let mut name = None;
-    let mut exec = None;
-    let mut mime = None;
-    let mut terminal = false;
-    let mut hidden = false;
-    let mut no_display = false;
+pub(crate) struct SystemAppOpener;
 
-    for line in content.lines() {
-        let line = line.trim();
-        if line.starts_with('[') && line.ends_with(']') {
-            in_entry = line == "[Desktop Entry]";
-            continue;
-        }
-        if !in_entry || line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let Some((key, value)) = line.split_once('=') else {
-            continue;
-        };
-        let value = value.trim();
-        match key.trim() {
-            "Name" if name.is_none() => name = Some(value.to_string()),
-            "Exec" => exec = Some(value.to_string()),
-            "MimeType" => {
-                mime = Some(
-                    value
-                        .split(';')
-                        .filter(|s| !s.is_empty())
-                        .map(|s| s.to_string())
-                        .collect(),
-                )
+fn refresh_associations() {
+    let context = gio::glib::MainContext::default();
+    if let Ok(_guard) = context.acquire() {
+        for _ in 0..64 {
+            if !context.pending() {
+                break;
             }
-            "Terminal" => terminal = value == "true",
-            "Hidden" => hidden = value == "true",
-            "NoDisplay" => no_display = value == "true",
-            _ => {}
+            context.iteration(false);
         }
     }
+}
 
-    if hidden || no_display {
-        return None;
-    }
-    let name = name?;
-    let exec = exec?;
+fn entry(app: &gio::AppInfo, recommended: bool) -> Option<AppEntry> {
     Some(AppEntry {
-        name,
-        exec,
-        mime_types: mime.unwrap_or_default(),
-        terminal,
+        id: app.id()?.to_string(),
+        name: app.display_name().to_string(),
+        recommended,
     })
 }
 
-pub fn scan_desktop_apps() -> Vec<AppEntry> {
-    let mut apps = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    for dir in desktop_dirs() {
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("desktop") {
-                continue;
-            }
-            if let Some(app) = parse_desktop_file(&path)
-                && seen.insert(path.to_string_lossy().to_string())
-            {
-                apps.push(app);
-            }
-        }
-    }
-    apps
+fn installed_app(id: &str) -> Result<gio::AppInfo, String> {
+    refresh_associations();
+    gio::AppInfo::all()
+        .into_iter()
+        .find(|app| app.id().as_deref() == Some(id))
+        .ok_or_else(|| format!("Application is no longer available: {id}"))
 }
 
-pub fn mime_for_path(path: &str) -> String {
-    mime_guess::from_path(path)
-        .first_raw()
-        .map(|m| m.to_string())
-        .unwrap_or_else(|| "application/octet-stream".to_string())
-}
-
-pub fn apps_for_mime(mime: &str, apps: &[AppEntry]) -> Vec<AppEntry> {
-    let mime_short = mime.split('/').next().unwrap_or("");
-    apps.iter()
-        .filter(|app| {
-            app.mime_types.iter().any(|m| {
-                m == mime
-                    || (m.ends_with("/*") && m.split('/').next() == Some(mime_short))
-                    || m == "application/octet-stream"
-            })
-        })
-        .cloned()
-        .collect()
-}
-
-pub fn launch(app: &AppEntry, path: &str) -> std::io::Result<()> {
-    if app.terminal {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "terminal desktop entries are not supported",
-        ));
-    }
-    let args = parse_exec(&app.exec, path)
-        .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
-    let (program, args) = args
-        .split_first()
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "empty Exec"))?;
-    std::process::Command::new(program).args(args).spawn()?;
-    Ok(())
-}
-
-fn parse_exec(exec: &str, path: &str) -> Result<Vec<String>, String> {
-    let mut args = Vec::new();
-    let mut current = String::new();
-    let mut quoted = false;
-    let mut escaped = false;
-    let mut used_path = false;
-
-    for ch in exec.chars() {
-        if escaped {
-            current.push(ch);
-            escaped = false;
-        } else if ch == '\\' {
-            escaped = true;
-        } else if ch == '"' {
-            quoted = !quoted;
-        } else if ch.is_whitespace() && !quoted {
-            if !current.is_empty() {
-                args.push(replace_field_codes(&current, path, &mut used_path)?);
-                current.clear();
-            }
+impl AppOpener for SystemAppOpener {
+    fn describe(&self, path: &Path) -> Result<FileInfo, String> {
+        refresh_associations();
+        let file = gio::File::for_path(path);
+        let attributes = file
+            .query_info(
+                "standard::content-type",
+                gio::FileQueryInfoFlags::NONE,
+                gio::Cancellable::NONE,
+            )
+            .map_err(|error| error.to_string())?;
+        let content_type = attributes
+            .content_type()
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "application/octet-stream".into());
+        let unknown = gio::content_type_is_unknown(&content_type);
+        let association = if unknown {
+            path.extension()
+                .and_then(|extension| extension.to_str())
+                .filter(|extension| !extension.is_empty())
+                .map(|extension| Association::Extension(extension.to_lowercase()))
         } else {
-            current.push(ch);
+            Some(Association::Mime(content_type.clone()))
+        };
+        let description = match &association {
+            Some(Association::Extension(extension)) => format!(".{extension} files"),
+            _ => gio::content_type_get_description(&content_type).to_string(),
+        };
+        let default_app = match file.query_default_handler(gio::Cancellable::NONE) {
+            Ok(app) => entry(&app, true)
+                .filter(|app| content_type == "inode/directory" || app.id != "tern.desktop"),
+            Err(error) if error.matches(gio::IOErrorEnum::NotSupported) => None,
+            Err(error) => return Err(error.to_string()),
+        };
+        Ok(FileInfo {
+            content_type,
+            description,
+            association,
+            default_app,
+        })
+    }
+
+    fn applications(&self, info: &FileInfo) -> Result<Vec<AppEntry>, String> {
+        refresh_associations();
+        let recommended = gio::AppInfo::all_for_type(&info.content_type);
+        let recommended_ids: HashSet<_> = recommended.iter().filter_map(|app| app.id()).collect();
+        let mut seen = HashSet::new();
+        let mut apps: Vec<_> = recommended
+            .into_iter()
+            .chain(gio::AppInfo::all())
+            .filter_map(|app| {
+                let id = app.id()?;
+                let recommended = recommended_ids.contains(&id);
+                if id == "tern.desktop"
+                    || (!recommended && !app.should_show())
+                    || (!recommended && !app.supports_files() && !app.supports_uris())
+                    || !seen.insert(id)
+                {
+                    return None;
+                }
+                entry(&app, recommended)
+            })
+            .collect();
+        apps.sort_by(|a, b| {
+            b.recommended
+                .cmp(&a.recommended)
+                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        Ok(apps)
+    }
+
+    fn launch(&self, app: &AppEntry, path: &Path) -> Result<(), String> {
+        std::fs::metadata(path).map_err(|error| error.to_string())?;
+        let native = installed_app(&app.id)?;
+        let uri = gio::File::for_path(path).uri();
+        gio::glib::MainContext::new()
+            .block_on(native.launch_uris_future(&[uri.as_str()], gio::AppLaunchContext::NONE))
+            .map_err(|error| error.to_string())?;
+        let command = native.commandline().unwrap_or_else(|| native.executable());
+        crate::files::recent::record_opened(path, &app.name, &command.to_string_lossy());
+        Ok(())
+    }
+
+    fn set_default(&self, app: &AppEntry, association: &Association) -> Result<(), String> {
+        let native = installed_app(&app.id)?;
+        match association {
+            Association::Mime(content_type) => native.set_as_default_for_type(content_type),
+            Association::Extension(extension) => native.set_as_default_for_extension(extension),
         }
-    }
-    if escaped || quoted {
-        return Err("unterminated desktop Exec argument".into());
-    }
-    if !current.is_empty() {
-        args.push(replace_field_codes(&current, path, &mut used_path)?);
-    }
-    if !used_path {
-        args.push(path.into());
-    }
-    Ok(args)
-}
-
-fn replace_field_codes(arg: &str, path: &str, used_path: &mut bool) -> Result<String, String> {
-    let mut out = String::new();
-    let mut chars = arg.chars();
-    while let Some(ch) = chars.next() {
-        if ch != '%' {
-            out.push(ch);
-            continue;
-        }
-        match chars.next() {
-            Some('%') => out.push('%'),
-            Some('f' | 'F' | 'u' | 'U') => {
-                out.push_str(path);
-                *used_path = true;
-            }
-            Some(code) => return Err(format!("unsupported desktop Exec field %{code}")),
-            None => return Err("trailing desktop Exec field marker".into()),
-        }
-    }
-    Ok(out)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn exec_parses_quoted_arguments_and_literal_path() {
-        let args = parse_exec("editor --title \"File name\" %f", "/tmp/a b;$(x).txt").unwrap();
-        assert_eq!(
-            args,
-            ["editor", "--title", "File name", "/tmp/a b;$(x).txt"]
-        );
-    }
-
-    #[test]
-    fn exec_appends_path_when_no_field() {
-        let args = parse_exec("kitty", "/tmp/a b").unwrap();
-        assert_eq!(args, ["kitty", "/tmp/a b"]);
-    }
-
-    #[test]
-    fn mime_wildcard_matches() {
-        let apps = vec![AppEntry {
-            name: "Editor".into(),
-            exec: "gedit".into(),
-            mime_types: vec!["text/*".into()],
-            terminal: false,
-        }];
-        let matched = apps_for_mime("text/plain", &apps);
-        assert_eq!(matched.len(), 1);
-        let not_matched = apps_for_mime("image/png", &apps);
-        assert!(not_matched.is_empty());
-    }
-
-    #[test]
-    fn parses_sample_desktop() {
-        let dir = std::env::temp_dir().join(format!("tern-desktop-test-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let f = dir.join("test-editor.desktop");
-        std::fs::write(
-            &f,
-            "[Desktop Entry]\nType=Application\nName=Test Editor\nExec=gedit %f\nMimeType=text/plain;text/markdown;\nTerminal=false\n",
-        )
-        .unwrap();
-        let app = parse_desktop_file(&f).unwrap();
-        assert_eq!(app.name, "Test Editor");
-        assert_eq!(app.exec, "gedit %f");
-        assert_eq!(app.mime_types, vec!["text/plain", "text/markdown"]);
-        std::fs::remove_dir_all(dir).ok();
+        .map_err(|error| error.to_string())
     }
 }

@@ -2,7 +2,7 @@
 use super::view::{BrowserEvent, BrowserView};
 use crate::platform::file_chooser::{APP_ID, ChooserRequest, Mode, Options, Pending, Resolution};
 use gpui_kit::component::{
-    ActiveTheme, Disableable, Root, TitleBar,
+    ActiveTheme, Disableable, Root, TitleBar, WindowExt,
     button::{Button, ButtonVariants},
     input::{Input, InputEvent, InputState},
     menu::{DropdownMenu, PopupMenuItem},
@@ -192,7 +192,7 @@ impl ChooserDialog {
     }
 }
 impl Render for ChooserDialog {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let browser = self.browser.clone();
         let mut controls = div().flex().flex_wrap().items_center().gap_2();
         if !self.options.filters.is_empty() {
@@ -272,7 +272,7 @@ impl Render for ChooserDialog {
             .bg(cx.theme().background)
             .on_key_down(
                 cx.listener(|this, event: &gpui_kit::KeyDownEvent, window, cx| {
-                    if event.keystroke.key == "escape" {
+                    if event.keystroke.key == "escape" && !window.has_active_dialog(cx) {
                         this.cancel(window);
                         cx.stop_propagation();
                     }
@@ -320,6 +320,8 @@ impl Render for ChooserDialog {
                             ),
                     ),
             )
+            .children(Root::render_dialog_layer(window, cx))
+            .children(Root::render_notification_layer(window, cx))
     }
 }
 

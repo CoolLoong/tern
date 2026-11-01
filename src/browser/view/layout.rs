@@ -224,16 +224,11 @@ impl BrowserView {
                                     .confirm()
                                     .button_props(confirm)
                                     .on_ok(move |_e, _window, cx| {
-                                        let failed = crate::files::operations::empty_trash();
-                                        if !failed.is_empty() {
-                                            log::warn!("failed to empty {} entries", failed.len());
-                                        }
-                                        view.update(cx, |this, cx| {
-                                            let table = this.table.clone();
-                                            table.update(cx, |state, cx| {
-                                                state.delegate_mut().refresh_at(None, cx)
-                                            });
-                                        });
+                                        crate::browser::transfers::start_file_operation(
+                                            "Empty Trash",
+                                            || crate::files::operations::empty_trash().len(),
+                                            cx,
+                                        );
                                         true
                                     })
                             });
@@ -287,12 +282,43 @@ impl BrowserView {
         let preview_w = self.preview_panel_width(viewport);
         let muted_fg = cx.theme().muted_foreground.opacity(0.85);
         let body = self.render_preview_body(preview_w, cx);
+        let can_copy = matches!(self.preview.content, PreviewContent::Text { .. });
+        let controls = div()
+            .flex()
+            .items_center()
+            .flex_shrink_0()
+            .gap(px(8.0))
+            .when_some(preview_size, |this, size| {
+                this.child(
+                    div()
+                        .text_xs()
+                        .text_color(muted_fg)
+                        .child(human_bytes(size)),
+                )
+            })
+            .when(can_copy, |this| {
+                this.child(
+                    div()
+                        .id("browser-preview-copy-action")
+                        .debug_selector(|| "browser-preview-copy".into())
+                        .child(
+                            Self::toolbar_button(
+                                "browser-preview-copy",
+                                Icon::new(IconName::Copy),
+                                "Copy all text",
+                            )
+                            .custom(Self::toolbar_variant(cx))
+                            .on_click(cx.listener(|this, _, _, cx| this.copy_preview_text(cx))),
+                        ),
+                )
+            });
 
         let header = div()
             .id("browser-preview-header")
             .flex()
             .items_center()
             .justify_between()
+            .gap(px(8.0))
             .px(px(10.0))
             .py(px(6.0))
             .bg(cx.theme().table_head)
@@ -301,23 +327,19 @@ impl BrowserView {
             .border_color(cx.theme().border)
             .child(
                 div()
+                    .flex_1()
+                    .min_w_0()
                     .text_sm()
                     .overflow_hidden()
                     .whitespace_nowrap()
                     .child(preview_title),
             )
-            .when_some(preview_size, |this, size| {
-                this.child(
-                    div()
-                        .text_xs()
-                        .text_color(muted_fg)
-                        .child(human_bytes(size)),
-                )
-            });
+            .child(controls);
 
         Some(
             div()
                 .id("browser-preview-panel")
+                .key_context("TernPreview")
                 .w(preview_w)
                 .min_w(px(240.0))
                 .flex_shrink_0()
@@ -327,11 +349,21 @@ impl BrowserView {
                 .bg(cx.theme().popover.opacity(0.32))
                 .border_l_1()
                 .border_color(cx.theme().border.opacity(0.9))
-                .on_any_mouse_down(|_ev, _window, cx| cx.stop_propagation())
+                .on_any_mouse_down(|event, _window, cx| {
+                    if event.button != MouseButton::Left {
+                        cx.stop_propagation();
+                    }
+                })
+                .capture_action(cx.listener(
+                    |this, _: &gpui_kit::component::input::Copy, window, cx| {
+                        this.copy_preview_selection(window, cx);
+                    },
+                ))
                 .child(header)
                 .child(
                     div()
                         .id("browser-preview-body")
+                        .debug_selector(|| "browser-preview-body".into())
                         .flex_1()
                         .min_h_0()
                         .p(px(8.0))
@@ -403,17 +435,17 @@ impl BrowserView {
                     .child(img_el)
                     .into_any_element()
             }
-            PreviewContent::Text { fenced_markdown } => {
-                gpui_kit::component::text::TextView::markdown(
-                    "browser-preview-text",
-                    fenced_markdown.clone(),
-                )
-                .selectable(true)
-                .scrollable(true)
-                .w_full()
-                .h_full()
-                .into_any_element()
-            }
+            PreviewContent::Text {
+                fenced_markdown, ..
+            } => gpui_kit::component::text::TextView::markdown(
+                "browser-preview-text",
+                fenced_markdown.clone(),
+            )
+            .selectable(true)
+            .scrollable(true)
+            .w_full()
+            .h_full()
+            .into_any_element(),
         }
     }
 
@@ -540,6 +572,7 @@ impl Render for BrowserView {
             .on_action(cx.listener(Self::on_open_with))
             .on_action(cx.listener(Self::on_properties))
             .on_action(cx.listener(Self::on_copy))
+            .on_action(cx.listener(Self::on_copy_path))
             .on_action(cx.listener(Self::on_cut))
             .on_action(cx.listener(Self::on_paste))
             .on_action(cx.listener(Self::on_add_to_bookmark))

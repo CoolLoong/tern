@@ -125,6 +125,7 @@ impl TernWindow {
                 // count changes. Relying on a descendant's notify to redraw this
                 // ancestor leaves the count stale whenever nothing else moved.
                 cx.observe_global::<StatusState>(|_, cx| cx.notify()),
+                cx.observe_global::<TransferCenterState>(|_, cx| cx.notify()),
             ],
         };
 
@@ -437,6 +438,12 @@ impl TernWindow {
         };
 
         let transfers = if summary.total > 0 {
+            let label = state
+                .tasks_sorted()
+                .into_iter()
+                .find(|task| task.status == gpui_transfer::TransferStatus::InProgress)
+                .map(|task| task.title)
+                .unwrap_or_default();
             let (bar_width, fill_width) = match summary.progress() {
                 TransferProgress::Determinate(f) => (px(120.0), px(120.0 * f)),
                 TransferProgress::Indeterminate => (px(120.0), px(0.0)),
@@ -450,7 +457,7 @@ impl TernWindow {
                         div()
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
-                            .child(format!("{} / {}", summary.done, summary.total)),
+                            .child(format!("{label}  {} / {}", summary.done, summary.total)),
                     )
                     .child(
                         div()

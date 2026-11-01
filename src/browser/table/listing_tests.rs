@@ -127,7 +127,6 @@ fn search_refresh_and_clear_use_the_right_snapshot(cx: &mut TestAppContext) {
     std::fs::remove_file(&old).unwrap();
     let new = fixture.write("hit-new", b"3");
     table.update(cx, |table, cx| {
-        // A directory load must not replace the recursive result list.
         table.delegate_mut().refresh_dir(fixture.path(), cx);
         table.delegate_mut().refresh_at(None, cx);
     });

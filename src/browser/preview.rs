@@ -19,6 +19,7 @@ pub(crate) enum PreviewContent {
         image: std::sync::Arc<gpui_kit::Image>,
     },
     Text {
+        text: gpui_kit::SharedString,
         fenced_markdown: gpui_kit::SharedString,
     },
     Error {
@@ -110,9 +111,11 @@ pub(crate) fn gate_preview(name: &str, kind: EntryKind, size: Option<u64>) -> Pr
 pub(crate) fn fenced_text_as_markdown(name: &str, text: &str) -> String {
     let lang = name
         .rsplit_once('.')
-        .map(|(_, e)| e.to_string())
+        .map(|(_, e)| e.trim())
         .unwrap_or_default();
-    format!("```{lang}\n{text}\n```")
+    let longest_run = text.split(|ch| ch != '`').map(str::len).max().unwrap_or(0);
+    let fence = "`".repeat(3.max(longest_run + 1));
+    format!("{fence}{lang}\n{text}\n{fence}")
 }
 
 pub(crate) fn is_image_name(name: &str) -> bool {

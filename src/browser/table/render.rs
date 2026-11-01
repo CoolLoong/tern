@@ -87,7 +87,7 @@ impl TableDelegate for BrowserDelegate {
                     }
                     // Row selection is off, so the component's own click handler
                     // no longer emits this; a double click must still navigate.
-                    if ev.click_count == 2 {
+                    if ev.click_count > 0 && ev.click_count.is_multiple_of(2) {
                         cx.emit(TableEvent::DoubleClickedRow(row_ix));
                     }
                     cx.notify();

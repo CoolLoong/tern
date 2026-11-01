@@ -1,5 +1,5 @@
 use super::actions::*;
-use gpui_kit::{App, KeyBinding};
+use gpui_kit::{App, KeyBinding, KeyBindingContextPredicate};
 
 pub const KEYBINDINGS: &[(&str, &str, &str, &str)] = &[
     ("new-tab", "New Tab", "ctrl-t", "NewTab"),
@@ -64,6 +64,22 @@ pub fn configured_keybindings(settings: &crate::settings::SettingsFile) -> Vec<K
     KEYBINDINGS
         .iter()
         .map(|(id, _, default, action)| {
+            let context = matches!(
+                *action,
+                "Copy"
+                    | "Cut"
+                    | "Paste"
+                    | "MoveToTrash"
+                    | "Delete"
+                    | "SelectAll"
+                    | "SelectUp"
+                    | "SelectDown"
+            )
+            .then(|| {
+                KeyBindingContextPredicate::parse("!Input && !TextView && !TernPreview")
+                    .expect("valid file action context")
+                    .into()
+            });
             KeyBinding::load(
                 &settings
                     .keybindings
@@ -71,7 +87,7 @@ pub fn configured_keybindings(settings: &crate::settings::SettingsFile) -> Vec<K
                     .cloned()
                     .unwrap_or_else(|| (*default).into()),
                 action_for(action),
-                None,
+                context,
                 false,
                 None,
                 &gpui_kit::DummyKeyboardMapper,
@@ -82,5 +98,13 @@ pub fn configured_keybindings(settings: &crate::settings::SettingsFile) -> Vec<K
 }
 
 pub fn register(settings: &crate::settings::SettingsFile, cx: &mut App) {
-    cx.bind_keys(configured_keybindings(settings));
+    let retained: Vec<_> = cx
+        .key_bindings()
+        .borrow()
+        .bindings()
+        .filter(|binding| !binding.action().name().starts_with("tern::"))
+        .cloned()
+        .collect();
+    cx.clear_key_bindings();
+    cx.bind_keys(retained.into_iter().chain(configured_keybindings(settings)));
 }

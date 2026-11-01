@@ -125,6 +125,7 @@ pub struct BrowserDelegate {
     // build only index arrays on workers, so clearing search does not reread IO.
     all_rows: RowSource,
     query: String,
+    recursive_search: bool,
     search_rows: Option<RowSource>,
     /// The last walk hit its result or depth cap, so the listing is a prefix.
     search_truncated: bool,
@@ -148,6 +149,7 @@ impl BrowserDelegate {
             visible: RowView::default(),
             all_rows: RowSource::default(),
             query: String::new(),
+            recursive_search: false,
             search_rows: None,
             search_truncated: false,
         }
@@ -166,7 +168,28 @@ impl BrowserDelegate {
             sort: self.sort,
             show_hidden: self.show_hidden,
             filter: self.file_filter.clone(),
+            query: if self.uses_recursive_search() {
+                String::new()
+            } else {
+                self.query.clone()
+            },
         }
+    }
+
+    pub(crate) fn set_recursive_search(
+        &mut self,
+        recursive: bool,
+        cx: &mut Context<TableState<Self>>,
+    ) {
+        if self.recursive_search == recursive {
+            return;
+        }
+        self.recursive_search = recursive;
+        self.start_search(cx);
+    }
+
+    fn uses_recursive_search(&self) -> bool {
+        self.recursive_search && !self.in_recent()
     }
 
     pub(crate) fn set_file_filter(
@@ -215,7 +238,7 @@ impl BrowserDelegate {
                     Ok(view) => {
                         let old = std::mem::replace(&mut delegate.all_rows, view.source());
                         retire(old, cx);
-                        if delegate.has_query() {
+                        if delegate.has_query() && delegate.uses_recursive_search() {
                             // A directory refresh cannot overwrite live search results.
                             retire(view, cx);
                         } else if view.options == delegate.view_options() {
@@ -274,7 +297,7 @@ impl BrowserDelegate {
         // While a search is live the listing is the walk's results, and a plain
         // directory read only refreshes `all_rows` -- so entries deleted or
         // moved since the walk would stay on screen. Re-run the walk instead.
-        if self.has_query() {
+        if self.has_query() && self.uses_recursive_search() {
             self.restart_search(cx);
             return;
         }
@@ -329,13 +352,6 @@ impl BrowserDelegate {
             .collect::<Vec<_>>();
         out.sort();
         out
-    }
-
-    pub(crate) fn context_entry(&self) -> Option<&str> {
-        match &self.interaction.context_target {
-            ContextTarget::Entry(id) => Some(id),
-            _ => None,
-        }
     }
 
     pub(crate) fn menu_target(&self) -> BrowserMenuTarget {
@@ -449,17 +465,13 @@ impl BrowserDelegate {
         self.searching = false;
         self.search_truncated = false;
         retire(self.search_rows.take(), cx);
-        if !self.has_query() {
+        if !self.has_query() || !self.uses_recursive_search() {
             self.rebuild_visible(cx);
             return;
         }
         let Some(root) = self.directory.clone() else {
             return;
         };
-        if crate::files::recent::is_recent(&root) {
-            self.rebuild_visible(cx);
-            return;
-        }
         let cancel = self.search_job.start();
         let worker_cancel = cancel.clone();
         self.searching = true;
@@ -524,7 +536,7 @@ impl BrowserDelegate {
 
     pub fn rebuild_visible(&mut self, cx: &mut Context<TableState<Self>>) {
         self.update_columns();
-        let source = if self.has_query() {
+        let source = if self.has_query() && self.uses_recursive_search() {
             self.search_rows.clone().unwrap_or_default()
         } else {
             self.all_rows.clone()

@@ -70,10 +70,7 @@ impl SettingsWindow {
                 .keybindings
                 .insert(id.clone(), input.read(cx).value().to_string());
         }
-        cx.clear_key_bindings();
-        cx.bind_keys(crate::app::keybindings::configured_keybindings(
-            &self.settings,
-        ));
+        crate::app::keybindings::register(&self.settings, cx);
         self.settings.apply_to_app(Some(window), cx);
         if let Err(err) = crate::settings::save_settings_to_disk(&self.settings) {
             log::warn!("failed to save settings: {err:#}");

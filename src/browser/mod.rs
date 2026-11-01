@@ -1,5 +1,6 @@
 //! File-browser scene: GPUI views, table delegate, interactions and operation adapters.
 
+pub(crate) mod app_chooser;
 pub(crate) mod chooser;
 pub(crate) mod clipboard;
 pub(crate) mod context_menu;

@@ -21,7 +21,6 @@ pub(crate) fn build_context_menu(
     let target = table.read(cx).delegate().menu_target();
     use gpui_common::TermuaIcon;
     let target_path = app_target(table, cx);
-    let table_open_with = table.clone();
     let table_compress_a = table.clone();
     let table_compress_b = table.clone();
 
@@ -61,12 +60,23 @@ pub(crate) fn build_context_menu(
                 Box::new(Delete),
             )
         };
-        return menu;
+        return menu.separator().menu_with_icon(
+            "Copy Path",
+            Icon::default().path(TermuaIcon::Paste),
+            Box::new(CopyPath),
+        );
     }
 
     match target {
         BrowserMenuTarget::Background => {
             menu = menu
+                .when(!in_recent, |menu| {
+                    menu.menu_with_icon(
+                        "Copy Path",
+                        Icon::default().path(TermuaIcon::Paste),
+                        Box::new(CopyPath),
+                    )
+                })
                 .menu_with_icon(
                     "Refresh",
                     Icon::default().path(TermuaIcon::Refresh),
@@ -98,7 +108,6 @@ pub(crate) fn build_context_menu(
         }
         BrowserMenuTarget::Single(kind) => {
             let is_dir = kind == crate::files::model::EntryKind::Dir;
-            let open_with_submenu = build_open_with_submenu(table, cx);
 
             menu = menu
                 .menu_with_icon(
@@ -127,37 +136,11 @@ pub(crate) fn build_context_menu(
                         }),
                 );
 
-            if let Some(apps) = open_with_submenu {
-                let table = table_open_with;
-                menu = menu.submenu_with_icon(
-                    Some(Icon::default().path(TermuaIcon::Global)),
-                    "Open With…",
-                    window,
-                    cx,
-                    move |mut menu, _window, _cx| {
-                        let apps = apps.clone();
-                        for app in apps {
-                            let app = app.clone();
-                            let table = table.clone();
-                            menu = menu.item(PopupMenuItem::new(app.name.clone()).on_click(
-                                move |_, _, cx| {
-                                    let path = app_target(&table, cx);
-                                    if let Err(err) =
-                                        crate::platform::open_with::launch(&app, &path)
-                                    {
-                                        log::warn!(
-                                            "failed to open {} with {}: {err}",
-                                            path,
-                                            app.name
-                                        );
-                                    }
-                                },
-                            ));
-                        }
-                        menu
-                    },
-                );
-            }
+            menu = menu.menu_with_icon(
+                "Open With…",
+                Icon::default().path(TermuaIcon::Global),
+                Box::new(OpenWith),
+            );
 
             menu = menu
                 .separator()
@@ -170,6 +153,11 @@ pub(crate) fn build_context_menu(
                     "Copy",
                     Icon::default().path(TermuaIcon::Paste),
                     Box::new(Copy),
+                )
+                .menu_with_icon(
+                    "Copy Path",
+                    Icon::default().path(TermuaIcon::Paste),
+                    Box::new(CopyPath),
                 )
                 .menu_with_icon(
                     "Paste",
@@ -251,6 +239,11 @@ pub(crate) fn build_context_menu(
                     Box::new(Copy),
                 )
                 .menu_with_icon(
+                    "Copy Path",
+                    Icon::default().path(TermuaIcon::Paste),
+                    Box::new(CopyPath),
+                )
+                .menu_with_icon(
                     "Paste",
                     Icon::default().path(TermuaIcon::Paste),
                     Box::new(Paste),
@@ -308,22 +301,6 @@ fn app_target(table: &Entity<TableState<BrowserDelegate>>, cx: &App) -> String {
         .first()
         .cloned()
         .unwrap_or_default()
-}
-
-fn build_open_with_submenu(
-    table: &Entity<TableState<BrowserDelegate>>,
-    cx: &App,
-) -> Option<Vec<crate::platform::open_with::AppEntry>> {
-    let path = app_target(table, cx);
-    if path.is_empty() {
-        return None;
-    }
-    let mime = crate::platform::open_with::mime_for_path(&path);
-    let apps = crate::platform::open_with::apps_for_mime(
-        &mime,
-        &crate::platform::open_with::scan_desktop_apps(),
-    );
-    if apps.is_empty() { None } else { Some(apps) }
 }
 
 fn compress_target(table: &Entity<TableState<BrowserDelegate>>, format: &str, cx: &App) {

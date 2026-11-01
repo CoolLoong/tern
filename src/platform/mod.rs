@@ -4,3 +4,5 @@ pub(crate) mod desktop;
 pub(crate) mod file_chooser;
 pub(crate) mod open_with;
 pub(crate) mod tray;
+
+pub(crate) mod volumes;

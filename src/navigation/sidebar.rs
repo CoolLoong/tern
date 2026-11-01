@@ -1,5 +1,5 @@
 use gpui_dock::{Panel, PanelEvent, PanelState, TabIcon};
-use gpui_kit::component::{ActiveTheme, Icon, IconName, Sizable};
+use gpui_kit::component::{ActiveTheme, Icon, IconName, Sizable, scroll::ScrollableElement};
 use gpui_kit::{
     App, Context, EventEmitter, FocusHandle, Focusable, InteractiveElement, IntoElement,
     ParentElement, Render, SharedString, Styled, Window, div, prelude::FluentBuilder, px,
@@ -48,18 +48,33 @@ pub struct PlacesSidebar {
     focus_handle: FocusHandle,
     computer_open: bool,
     bookmarks_open: bool,
+    pub(super) devices_open: bool,
+    pub(super) devices: super::devices::Devices,
 }
 
 impl PlacesSidebar {
     pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
-        Self {
+        let mut this = Self {
             focus_handle: cx.focus_handle(),
             computer_open: true,
             bookmarks_open: true,
+            devices_open: true,
+            devices: super::devices::Devices {
+                items: Vec::new(),
+                error: None,
+                busy: Default::default(),
+                backend: std::sync::Arc::new(crate::platform::volumes::SystemVolumes),
+                watch: None,
+                generation: 0,
+            },
+        };
+        if !cfg!(test) {
+            this.watch_devices(cx);
         }
+        this
     }
 
-    fn section_header(
+    pub(super) fn section_header(
         id: &'static str,
         label: &'static str,
         open: bool,
@@ -137,6 +152,7 @@ impl Render for PlacesSidebar {
 
         div()
             .id("places-sidebar")
+            .overflow_y_scrollbar()
             .size_full()
             .flex()
             .flex_col()
@@ -271,5 +287,6 @@ impl Render for PlacesSidebar {
                     }))
                 }
             })
+            .child(self.render_devices(cx))
     }
 }

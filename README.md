@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="docs/assets/banner-0.0.1.png" alt="Tern 0.0.1 — light-theme interface preview with anonymous sample folders and paths" width="100%">
+  <img src="docs/assets/banner.png" alt="Tern — light-theme interface preview with anonymous sample folders and paths" width="100%">
 </p>
 
 <p align="center">
   <a href="https://github.com/CoolLoong/tern/actions/workflows/build.yml"><img src="https://github.com/CoolLoong/tern/actions/workflows/build.yml/badge.svg" alt="Build"></a>
   <a href="#getting-started"><img src="https://img.shields.io/badge/platform-Linux-12283a?style=flat-square" alt="Platform: Linux"></a>
-  <a href="docs/releases.md"><img src="https://img.shields.io/badge/version-0.0.1-c47f5a?style=flat-square" alt="Tern 0.0.1"></a>
+  <a href="docs/releases.md"><img src="https://img.shields.io/badge/version-0.0.2-c47f5a?style=flat-square" alt="Tern 0.0.2"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0--only-268b85?style=flat-square" alt="AGPL-3.0-only license"></a>
 </p>
 
@@ -26,18 +26,21 @@ components originate from [termua](https://github.com/iamazy/termua).
 The banner is a designed preview based on Tern's interface, using sample files
 and anonymous paths.
 
-**Version 0.0.1 · Development preview.** The supported target is Linux x86_64 with a session
+**Version 0.0.2 · Development preview.** The supported target is Linux x86_64 with a session
 D-Bus and an X11 or Wayland desktop. Niri has dedicated activation and floating
 file-chooser integration. Other compositors need their own window rules.
+
+See the [0.0.2 changelog](CHANGELOG.md#002--2026-11-01) for the changes in this release.
 
 ## Features
 
 | Area | Available today |
 | --- | --- |
 | Browse | List and icon views, tabs, persistent workspace, navigation history, editable breadcrumbs |
-| Find | Recursive local search, glob matching, hidden-file toggle, sorting and Recent files |
-| Organize | Copy, move, rename, create folders/files, trash, restore, permanent deletion and archive creation |
-| Inspect | Image/text preview, properties, MIME-based Open With and external terminal launch |
+| Find | Current-folder name search, glob matching, hidden-file toggle, sorting and Recent files |
+| External drives | Detect USB/removable filesystems, mount and open, and unmount through UDisks2; refresh device status every 5 seconds |
+| Organize | Copy, move, rename with extension editing, copy absolute paths, create folders/files, trash, restore, permanent deletion and archive creation |
+| Inspect | Image/text preview, copy selected or full preview text, properties, MIME-based Open With and external terminal launch |
 | Interact | Multi-select, marquee selection, drag and drop, keyboard shortcuts and context menus |
 | Integrate | D-Bus single instance, FileManager1, resident tray icon and XDG FileChooser backend |
 
@@ -58,7 +61,7 @@ On Ubuntu 24.04, install the native build dependencies:
 sudo apt-get update
 sudo apt-get install -y build-essential clang cmake lld pkg-config \
   libfontconfig-dev libfreetype-dev libwayland-dev libx11-xcb-dev \
-  libxkbcommon-x11-dev libssl-dev libzstd-dev libvulkan1 dbus
+  libxkbcommon-x11-dev libssl-dev libzstd-dev libvulkan1 libglib2.0-dev shared-mime-info dbus
 ```
 
 ```sh
@@ -99,6 +102,13 @@ windows through the resident instance. Double-click the breadcrumb path to edit
 it, or use `Ctrl+L`. Closing all windows leaves Tern in the system tray; choose
 **Quit** from the application or tray menu to exit.
 
+Double-click a file to open it with its system default application. If no default
+is available, Tern asks you to choose an installed application. **Always use this
+application** saves the choice for that file type; leave it unchecked to open
+once. **Open With…** opens the same chooser to select a different application.
+MIME detection, desktop-entry launching and default associations use
+[GIO](https://docs.gtk.org/gio/iface.AppInfo.html).
+
 ## Desktop integration
 
 - **File manager:** `packaging/linux/tern.desktop` advertises directory handling.
@@ -109,6 +119,11 @@ it, or use `Ctrl+L`. Closing all windows leaves Tern in the system tray; choose
 - **Tray:** a StatusNotifierItem host is needed to display the resident icon.
   Running directly from a checkout does not install the `tern` icon into the
   desktop theme; package installation supplies it.
+
+External-drive support requires the `udisks2` system service and a desktop polkit
+agent when authentication is required. The Arch package includes `udisks2`. Each
+mountable partition is listed separately below Bookmarks; encrypted-volume
+unlocking is not included.
 
 ## Development and validation
 
@@ -150,8 +165,8 @@ The filesystem layer does not depend on GPUI. Read the
 
 - Local filesystem only; no SSH/SFTP, network mounts management or undo history.
 - Several UI paths use UTF-8 strings; arbitrary non-UTF-8 filenames are not fully supported.
-- Search stops at 2,000 results and a maximum depth of 12. Truncation is reported
-  when the result cap stops the walk; inaccessible and deeper branches are skipped.
+- Search matches the names of the current folder's direct children, in both
+  regular windows and file choosers. It does not search file contents or subfolders.
 - Portal MIME filtering uses filename extensions. External Wayland parent
   windows are not imported, so floating chooser windows are not guaranteed to
   be modal to the calling browser.

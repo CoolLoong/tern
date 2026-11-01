@@ -1,15 +1,19 @@
 # Maintainer: CoolLoong <wingdon@foxmail.com>
 pkgname=tern
-pkgver=0.0.1
+pkgver=$(awk -F '"' '
+    /^[[:space:]]*\[workspace\.package\]/ { in_package = 1; next }
+    /^[[:space:]]*\[/ { in_package = 0 }
+    in_package && /^[[:space:]]*version[[:space:]]*=/ { print $2; exit }
+' "$startdir/Cargo.toml")
 # Required by makepkg; keep fixed. Product releases use only the SemVer pkgver.
 pkgrel=1
 pkgdesc="A fast native file manager built with Rust and GPUI"
 arch=('x86_64')
 url="https://github.com/CoolLoong/tern"
 license=('AGPL-3.0-only')
-depends=('fontconfig' 'freetype2' 'glibc' 'hicolor-icon-theme' 'libgcc' 'libx11' 'libxcb'
-         'libxkbcommon' 'libxkbcommon-x11' 'openssl' 'vulkan-icd-loader'
-         'wayland' 'xdg-utils' 'zlib')
+depends=('fontconfig' 'freetype2' 'glib2' 'glibc' 'hicolor-icon-theme' 'libgcc' 'libx11' 'libxcb'
+         'libxkbcommon' 'libxkbcommon-x11' 'openssl' 'shared-mime-info' 'vulkan-icd-loader'
+         'udisks2' 'wayland' 'xdg-utils' 'zlib')
 makedepends=('cargo' 'clang' 'cmake' 'lld' 'pkgconf')
 optdepends=('zip: create ZIP archives')
 optdepends+=('xdg-desktop-portal: browser file chooser portal integration')
